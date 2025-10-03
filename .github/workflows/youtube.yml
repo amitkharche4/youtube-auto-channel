@@ -1,0 +1,25 @@
+name: YouTube Auto Upload
+
+on:
+  schedule:
+    - cron: "0 10 * * *"   # Runs daily at 10:00 UTC
+  workflow_dispatch:        # manual trigger
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.9"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run script
+        env:
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+        run: python main.py
