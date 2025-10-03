@@ -1,163 +1,139 @@
-import os, random, requests, textwrap
+import os
+import random
+import logging
+import requests
+import base64
+from datetime import datetime
 from gtts import gTTS
-from moviepy.editor import *
+from moviepy.editor import ImageClip, concatenate_videoclips, AudioFileClip
 from PIL import Image, ImageDraw, ImageFont
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
+from googleapiclient.errors import HttpError
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
+import json
 
-# ================== CONFIG ==================
-PEXELS_API_KEY = os.getenv("PEXELS_API_KEY")
-VIDEO_DIR = "videos"
-THUMBNAIL_DIR = "thumbnails"
-STOCK_DIR = "stock"
+# ------------------ Logging ------------------
+logging.basicConfig(
+    filename="uploader.log",
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
+# ------------------ Settings ------------------
+PEXELS_API_KEY = os.getenv("PEXELS_API_KEY")  # stored in GitHub Secrets
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 
-os.makedirs(VIDEO_DIR, exist_ok=True)
-os.makedirs(THUMBNAIL_DIR, exist_ok=True)
-os.makedirs(STOCK_DIR, exist_ok=True)
-
-# ================== STEP 1: AI SCRIPT ==================
-def generate_ai_script():
-    topics = [
-        "How AI Side Hustles Can Make You $500/day",
-        "Top 3 Free AI Tools You Must Try",
-        "How to Automate Work with AI Agents",
-        "Secret AI Techniques to Grow Online",
-        "The Future of AI Money Making Hustles"
+# ------------------ SEO AI Generator (simulated GPT) ------------------
+def generate_ai_content():
+    """Generate AI Hustle video content (title, desc, tags)."""
+    ideas = [
+        "AI Side Hustles Nobody Talks About",
+        "How to Make $500/Day with Free AI Tools",
+        "Unique AI Business Ideas for 2025",
+        "Hidden AI Hustles That Actually Pay",
+        "Earn Passive Income with AI (Zero Cost)"
     ]
-    title = random.choice(topics)
-    body = f"""
-    Welcome to today's video on {title}.
-    In this video, we'll break down how you can use AI tools and automation 
-    to create unique hustles and make passive income. 
-    Stay tuned till the end because I’ll reveal a free tool that nobody talks about.
-    """
-    return title, body
+    title = random.choice(ideas)
+    desc = (
+        f"{title}\n\n"
+        f"Discover the latest AI hustle you can start today with zero investment. "
+        f"Daily uploads about AI tools, automation and hidden income streams.\n\n"
+        f"#AI #SideHustle #MakeMoneyOnline"
+    )
+    tags = ["AI Hustle", "Make Money Online", "AI Tools", "Passive Income", "Side Hustle 2025"]
+    return title, desc, tags
 
-# ================== STEP 2: TEXT TO SPEECH ==================
-def text_to_speech(text, filename):
-    tts = gTTS(text=text, lang="en")
-    audio_path = os.path.join(VIDEO_DIR, filename + ".mp3")
-    tts.save(audio_path)
-    return audio_path
-
-# ================== STEP 3: FETCH STOCK MEDIA ==================
-def fetch_stock_media(query="artificial intelligence", count=3):
+# ------------------ Stock Media Downloader ------------------
+def download_stock_image():
+    url = "https://api.pexels.com/v1/search"
     headers = {"Authorization": PEXELS_API_KEY}
-    url = f"https://api.pexels.com/videos/search?query={query}&per_page={count}"
-    r = requests.get(url, headers=headers).json()
-    paths = []
-    for idx, video in enumerate(r.get("videos", [])):
-        video_url = video["video_files"][0]["link"]
-        path = os.path.join(STOCK_DIR, f"stock{idx}.mp4")
-        with open(path, "wb") as f:
-            f.write(requests.get(video_url).content)
-        paths.append(path)
-    return paths
+    params = {"query": "artificial intelligence technology", "per_page": 1}
+    response = requests.get(url, headers=headers, params=params)
+    data = response.json()
+    img_url = data["photos"][0]["src"]["large"]
+    img_data = requests.get(img_url).content
+    with open("background.jpg", "wb") as f:
+        f.write(img_data)
+    logging.info("Downloaded stock background image.")
 
-# ================== STEP 4: VIDEO CREATION ==================
-def create_video(title, body):
-    audio_path = text_to_speech(body, "narration")
-    narration = AudioFileClip(audio_path)
+# ------------------ Audio Generation ------------------
+def create_tts_audio(text):
+    tts = gTTS(text=text, lang="en")
+    tts.save("voice.mp3")
+    logging.info("Generated voiceover with gTTS.")
 
-    stock_clips = fetch_stock_media("artificial intelligence", 3)
-    clips = [VideoFileClip(p).resize((1280,720)) for p in stock_clips]
-    bg_video = concatenate_videoclips(clips).subclip(0, narration.duration)
+# ------------------ Video Creation ------------------
+def create_video():
+    image = ImageClip("background.jpg", duration=30)
+    audio = AudioFileClip("voice.mp3")
+    video = image.set_audio(audio)
+    video.write_videofile("output.mp4", fps=24)
+    logging.info("Created final video output.mp4.")
 
-    txt_clip = TextClip(title, fontsize=60, color='yellow', size=(1200, None), method='caption')
-    txt_clip = txt_clip.set_duration(narration.duration).set_position(("center","bottom"))
-
-    final = CompositeVideoClip([bg_video, txt_clip])
-    final = final.set_audio(narration)
-
-    video_path = os.path.join(VIDEO_DIR, "final_video.mp4")
-    final.write_videofile(video_path, fps=24)
-    return video_path
-
-# ================== STEP 5: SEO METADATA ==================
-def generate_seo_metadata(title):
-    seo_title = title + " | AI Hustles 2025"
-    description = f"""
-    Discover how to leverage AI tools, automation, and free apps to create unique side hustles.
-    In this video: {title}.
-    
-    🚀 Subscribe for daily AI Hustle hacks!
-    #AI #SideHustle #Automation
-    """
-    tags = ["AI tools", "side hustles", "make money online", "automation", "AI 2025", "passive income"]
-    return seo_title, description, ",".join(tags)
-
-# ================== STEP 6: THUMBNAIL CREATION ==================
-def generate_thumbnail():
-    thumb_texts = [
-        "AI Trick = $$$",
-        "Secret AI Hack!",
-        "Make $500/day with AI",
-        "Nobody Tells You This!",
-        "AI Hustle Exposed!"
-    ]
-    thumb_text = random.choice(thumb_texts)
-    img = Image.new("RGB", (1280, 720), color=(20,20,20))
+# ------------------ Thumbnail Generator ------------------
+def create_thumbnail(title):
+    img = Image.new("RGB", (1280, 720), color=(30, 30, 30))
     draw = ImageDraw.Draw(img)
     font = ImageFont.load_default()
-    wrapped_text = textwrap.fill(thumb_text, width=20)
-    draw.text((50,300), wrapped_text, font=font, fill="yellow")
-    thumb_path = os.path.join(THUMBNAIL_DIR, "thumbnail.jpg")
-    img.save(thumb_path)
-    return thumb_path
+    draw.text((50, 300), title[:40], font=font, fill="white")
+    img.save("thumbnail.jpg")
+    logging.info("Created CTR-boosting thumbnail.")
 
-# ================== STEP 7: AUTH + UPLOAD ==================
-def get_authenticated_service():
+# ------------------ YouTube Upload ------------------
+def authenticate_youtube():
     creds = None
     if os.path.exists("token.json"):
-        creds = Credentials.from_authorized_user_file("token.json", SCOPES)
+        with open("token.json", "r") as token:
+            creds_data = json.load(token)
+            from google.oauth2.credentials import Credentials
+            creds = Credentials.from_authorized_user_info(creds_data, SCOPES)
+
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
             flow = InstalledAppFlow.from_client_secrets_file("client_secret.json", SCOPES)
             creds = flow.run_local_server(port=0)
+
         with open("token.json", "w") as token:
             token.write(creds.to_json())
+
     return build("youtube", "v3", credentials=creds)
 
-def upload_video(video_path, title, description, tags, thumbnail_path):
-    youtube = get_authenticated_service()
-
-    request_body = {
-        "snippet": {
-            "categoryId": "28",
-            "title": title,
-            "description": description,
-            "tags": tags.split(",")
-        },
-        "status": {"privacyStatus": "public"}
-    }
-
-    media_file = MediaFileUpload(video_path)
-    response = youtube.videos().insert(
+def upload_to_youtube(title, desc, tags):
+    youtube = authenticate_youtube()
+    request = youtube.videos().insert(
         part="snippet,status",
-        body=request_body,
-        media_body=media_file
-    ).execute()
+        body={
+            "snippet": {
+                "title": title,
+                "description": desc,
+                "tags": tags,
+                "categoryId": "28"  # Science & Technology
+            },
+            "status": {"privacyStatus": "public"}
+        },
+        media_body="output.mp4"
+    )
+    response = request.execute()
+    logging.info(f"Uploaded video to YouTube: {response['id']}")
 
-    video_id = response.get("id")
-    youtube.thumbnails().set(
-        videoId=video_id,
-        media_body=MediaFileUpload(thumbnail_path)
-    ).execute()
-    print(f"✅ Uploaded: https://youtube.com/watch?v={video_id}")
-
-# ================== MAIN ==================
+# ------------------ Main Pipeline ------------------
 def main():
-    title, body = generate_ai_script()
-    video_path = create_video(title, body)
-    seo_title, description, tags = generate_seo_metadata(title)
-    thumb_path = generate_thumbnail()
-    upload_video(video_path, seo_title, description, tags, thumb_path)
+    try:
+        title, desc, tags = generate_ai_content()
+        download_stock_image()
+        create_tts_audio(desc)
+        create_video()
+        create_thumbnail(title)
+        upload_to_youtube(title, desc, tags)
+        logging.info("✅ Pipeline finished successfully.")
+    except HttpError as e:
+        logging.error(f"YouTube API error: {e}")
+    except Exception as e:
+        logging.error(f"Pipeline failed: {e}")
 
 if __name__ == "__main__":
     main()
+
